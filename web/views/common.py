@@ -18,6 +18,12 @@ def index(request):
 
 
 @login_required()
+def vue_index(request):
+    if is_teacher(request.user):
+        return render(request, 'web/vueui.html')
+
+
+@login_required()
 def api_token(request):
     data = {
         "base_url": f"{request.scheme}://{request.META.get('HTTP_HOST', 'localhost:8000')}",
