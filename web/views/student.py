@@ -62,8 +62,10 @@ from common.models import (
 )
 from common.plagcheck.moss import PlagiarismMatch, moss_result
 from common.submit import SubmitRateLimited, store_submit, SubmitPastHardDeadline
+from common.summary.models import ReviewResult
 from common.upload import MAX_UPLOAD_FILECOUNT, TooManyFilesError
 from common.utils import is_teacher
+from common.serialization import dict_to_dataclass
 from evaluator.results import EvaluationResult
 from evaluator.testsets import TestSet
 from kelvin.settings import BASE_DIR, MAX_INLINE_CONTENT_BYTES, MAX_INLINE_LINES
