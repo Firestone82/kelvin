@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 import django_rq
 import requests
 
+from common.serialization import dataclass_to_dict
 from common.summary.dto import (
     EmbeddedFile,
     ReviewResult,
@@ -102,7 +103,7 @@ def summary_job(submit_url, token) -> None:
     logging.info(f"Summarizing {submit_url}")
 
     with tempfile.TemporaryDirectory() as workdir:
-        download_source_to_path(f"{submit_url}download?token={token}", ".")
+        download_source_to_path(f"{submit_url}download?token={token}", workdir)
         embedded_files = embed_source_files(workdir)
 
     summary: Summarizer = Summarizer(

@@ -88,8 +88,6 @@ class ResolveSubmitSuggestion(View):
     def http_method_not_allowed(self, request, *args, **kwargs):
         return JsonResponse({"error": f"Method {request.method} not allowed."}, status=405)
 
-
-@csrf_exempt
 @require_POST
 def post_submit_summary_result(request, submit_id):
     if "token" in request.GET:
