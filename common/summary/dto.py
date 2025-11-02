@@ -34,6 +34,7 @@ class SuggestedCommentDTO:
     line: int
     text: str
     severity: Severity
+    explanation: str
     state: SuggestionState
 
 
