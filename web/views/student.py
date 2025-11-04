@@ -35,10 +35,6 @@ from django.views.decorators.csrf import csrf_exempt
 from notifications.models import Notification
 from notifications.signals import notify
 
-from common.ai_summary.summary import (
-    AI_REVIEW_COMMENT_TYPE,
-    AI_REVIEW_COMMENT_AUTHOR,
-)
 from common.evaluate import get_meta
 from common.event_log import record_task_displayed, record_final_submit_event
 from common.exceptions.http_exceptions import (
@@ -58,11 +54,8 @@ from common.models import (
     current_semester,
 )
 from common.plagcheck.moss import PlagiarismMatch, moss_result
-from common.serialization import dict_to_dataclass
 from common.submit import SubmitRateLimited, store_submit, SubmitPastHardDeadline
-from common.summary.dto import SuggestedSummaryDTO, SuggestionState, ReviewResult
 from common.summary.summary import get_submit_review
-from common.summary.summary import SUMMARY_RESULT_FILE_NAME
 from common.upload import MAX_UPLOAD_FILECOUNT, TooManyFilesError
 from common.utils import is_teacher
 from evaluator.results import EvaluationResult
@@ -211,9 +204,9 @@ def student_index(request):
     semesters = []
     for year, winter in (
         Class.objects.filter(students__pk=request.user.id)
-        .values_list("semester__year", "semester__winter")
-        .distinct()
-        .order_by("semester__begin", "semester__winter")
+            .values_list("semester__year", "semester__winter")
+            .distinct()
+            .order_by("semester__begin", "semester__winter")
     ):
         semesters.append(
             {
@@ -367,7 +360,7 @@ def task_detail(request, assignment_id, submit_num=None, login=None):
         "max_inline_content_bytes": MAX_INLINE_CONTENT_BYTES,
         "has_pipeline": bool(testset.pipeline),
         "upload": (not user_is_teacher or request.user.username == login)
-        and not (hard_deadline and assignment.is_past_deadline()),
+                  and not (hard_deadline and assignment.is_past_deadline()),
     }
 
     # Provide a link to a student with the same assignment who doesn't yet have any assigned points
@@ -738,7 +731,7 @@ def submit_comments(request, assignment_id, login, submit_num):
                 "type": "img",
                 "path": source.virt,
                 "src": reverse("submit_source", args=[submit.id, source.virt])
-                + ("?convert=1" if mime not in SUPPORTED_IMAGES else ""),
+                       + ("?convert=1" if mime not in SUPPORTED_IMAGES else ""),
             }
         elif mime and mime.startswith("video/"):
             name = ".".join(source.virt.split(".")[:-1])
@@ -820,37 +813,6 @@ def submit_comments(request, assignment_id, login, submit_num):
         except KeyError as e:
             logging.exception(e)
 
-    # add comments from llm summary
-    if is_teacher(request.user):  # Currently only teachers can view LLM summary comments
-        llm_summary = getattr(resultset["summary"], "summary", "")
-
-        if len(llm_summary) > 0:
-            summary_comments.append(
-                {
-                    "id": -1,
-                    "author": "LLM",
-                    "text": llm_summary,
-                    "can_edit": False,
-                    "type": "summary",
-                    "url": None,
-                }
-            )
-
-        for issue in getattr(resultset["summary"], "issues", []):
-            if issue.file not in result:
-                continue
-
-            result[issue.file]["comments"].setdefault(int(issue.line) - 1, []).append(
-                {
-                    "id": -1,
-                    "author": "LLM",
-                    "text": issue.explanation,
-                    "can_edit": False,
-                    "type": "summary",
-                    "url": None,
-                }
-            )
-
     # Append review summary to comments
     if submit_data.summary:
         review_result: ReviewResult = submit_data.summary
@@ -872,12 +834,7 @@ def submit_comments(request, assignment_id, login, submit_num):
                         "can_edit": False,
                         "type": AI_REVIEW_COMMENT_TYPE,
                         "url": None,
-                        "meta": {
-                            "summary": {
-                                "id": summary.id,
-                                "state": summary.state.name,  #
-                            }
-                        },
+                        "meta": {"summary": {"id": summary.id, "state": summary.state.name}},
                     }
                 )
 

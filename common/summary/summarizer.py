@@ -7,13 +7,17 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionUserMessageParam, ChatCompletionSystemMessageParam
 from openai.types.shared_params import ResponseFormatJSONObject
 
+from common.ai_summary.dto import SuggestionState, SuggestedCommentDTO, SuggestedSummaryDTO
 from common.summary.dto import (
     EmbeddedFile,
     ReviewResult,
     Severity,
 )
-
-from common.ai_summary.dto import SuggestionState, SuggestedCommentDTO, SuggestedSummaryDTO
+from common.summary.dto import (
+    SuggestedCommentDTO,
+    SuggestedSummaryDTO,
+    SuggestionState,
+)
 from kelvin import settings
 
 

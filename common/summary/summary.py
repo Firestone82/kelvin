@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import django_rq
 import requests
 
-from common.serialization import dataclass_to_dict
+from common.models import Submit, SuggestedComment
 from common.summary.dto import (
     EmbeddedFile,
     ReviewResult,
@@ -159,6 +159,66 @@ def save_submit_review(submit: Submit, review: ReviewResult) -> None:
         )
 
     # TODO: Currently if re-evaluating, old teacher accepted suggestions are kept.
+
+    SuggestedComment.objects.filter(submit=submit).delete()
+    SuggestedComment.objects.bulk_create(suggestions)
+
+
+def get_submit_review(submit: Submit) -> Optional[ReviewResult]:
+    comments = SuggestedComment.objects.filter(submit=submit)
+
+    if not comments.exists():
+        return None
+
+    summary = None
+    suggestions = []
+
+    for comment in comments:
+        if not comment.line:
+            summary = SuggestedSummaryDTO(
+                id=comment.id, text=comment.text, state=SuggestionState(comment.state)
+            )
+        else:
+            suggestions.append(
+                SuggestedCommentDTO(
+                    id=comment.id,
+                    source=comment.source,
+                    line=comment.line,
+                    severity=Severity(comment.severity),
+                    text=comment.text,
+                    state=SuggestionState(comment.state),
+                )
+            )
+
+    return ReviewResult(summary=summary, suggestions=suggestions)
+
+
+def save_submit_review(submit: Submit, review: ReviewResult) -> None:
+    suggestions = []
+
+    # Save summary comment
+    if review.summary:
+        suggestions.append(
+            SuggestedComment(
+                submit=submit,
+                source=None,
+                line=None,
+                text=review.summary.text,
+                severity=Severity.MEDIUM.value,
+            )
+        )
+
+    # Save suggestion comments
+    for suggestion in review.suggestions:
+        suggestions.append(
+            SuggestedComment(
+                submit=submit,
+                source=suggestion.source,
+                line=suggestion.line,
+                text=suggestion.text,
+                severity=suggestion.severity.value,
+            )
+        )
 
     SuggestedComment.objects.filter(submit=submit).delete()
     SuggestedComment.objects.bulk_create(suggestions)

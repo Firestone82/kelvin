@@ -1,4 +1,3 @@
-from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -9,78 +8,66 @@ from django.views.decorators.http import require_POST
 from serde.json import from_json
 
 from common.models import Submit, SuggestedComment, Comment
-from common.ai_summary.dto import ReviewResult, SuggestionState
-from common.ai_summary.summary import save_submit_review
+from common.summary.dto import ReviewResult, SuggestionState
+from common.summary.summary import save_submit_review
 from common.utils import is_teacher
-
-
-def dump_comment_to_dto(comment: Comment) -> dict:
-    return {
-        "id": comment.id,
-        "author": comment.author.get_full_name(),
-        "author_id": comment.author.id,
-        "text": comment.text,
-        "line": comment.line,
-        "source": comment.source,
-        "can_edit": True,
-        "type": "teacher",
-        "unread": True,
-    }
 
 
 @method_decorator(csrf_exempt, name="dispatch")
 class ResolveSubmitSuggestion(View):
-    def post(self, request, suggestion_id):
-        if not is_teacher(request.user):
+    def post(self, assignment_id, login, submit_num, suggestion_id):
+        if not is_teacher(self.request.user):
             raise PermissionDenied()
 
+        submit = get_object_or_404(
+            Submit, assignment_id=assignment_id, student__username=login, submit_num=submit_num
+        )
         suggestion = get_object_or_404(SuggestedComment, id=suggestion_id)
 
-        created_comment = Comment(
-            submit=suggestion.submit,
-            author=request.user,
+        suggestion.state = SuggestionState.ACCEPTED
+        suggestion.save()
+
+        Comment(
+            submit=submit,
+            author=self.request.user,
             text=suggestion.text,
             source=suggestion.source,
             line=suggestion.line,
-        )
-        created_comment.save()
+        ).save()
 
-        suggestion.state = SuggestionState.ACCEPTED.value
-        suggestion.comment = created_comment
-        suggestion.save()
+        return JsonResponse({"status": "created"})
 
-        return JsonResponse(dump_comment_to_dto(created_comment))
-
-    def patch(self, request, suggestion_id):
-        if not is_teacher(request.user):
+    def patch(self, assignment_id, login, submit_num, suggestion_id):
+        if not is_teacher(self.request.user):
             raise PermissionDenied()
 
+        submit = get_object_or_404(
+            Submit, assignment_id=assignment_id, student__username=login, submit_num=submit_num
+        )
         suggestion = get_object_or_404(SuggestedComment, id=suggestion_id)
 
-        body = from_json(dict, request.body)
+        suggestion.state = SuggestionState.ACCEPTED
+        suggestion.save()
+
+        body = from_json(dict, self.request.body)
         modified_text = body.get("modified_text")
 
-        created_comment = Comment(
-            submit=suggestion.submit,
-            author=request.user,
+        Comment(
+            submit=submit,
+            author=self.request.user,
             text=modified_text if modified_text is not None else suggestion.text,
             source=suggestion.source,
             line=suggestion.line,
-        )
-        created_comment.save()
+        ).save()
 
-        suggestion.state = SuggestionState.ACCEPTED.value
-        suggestion.comment = created_comment
-        suggestion.save()
+        return JsonResponse({"status": "updated"})
 
-        return JsonResponse(dump_comment_to_dto(created_comment))
-
-    def delete(self, request, suggestion_id):
-        if not is_teacher(request.user):
+    def delete(self, _, __, ___, suggestion_id):
+        if not is_teacher(self.request.user):
             raise PermissionDenied()
 
         suggestion = get_object_or_404(SuggestedComment, id=suggestion_id)
-        suggestion.state = SuggestionState.REJECTED.value
+        suggestion.state = SuggestionState.REJECTED
         suggestion.save()
 
         return JsonResponse({"status": "deleted"})
@@ -88,17 +75,15 @@ class ResolveSubmitSuggestion(View):
     def http_method_not_allowed(self, request, *args, **kwargs):
         return JsonResponse({"error": f"Method {request.method} not allowed."}, status=405)
 
+
+@csrf_exempt
 @require_POST
-def post_submit_summary_result(request, submit_id):
-    if "token" in request.GET:
-        token = signing.loads(request.GET["token"], max_age=3600)
+def post_submit_summary_result(request, assignment_id, login, submit_num):
+    submit = get_object_or_404(
+        Submit, assignment_id=assignment_id, student__username=login, submit_num=submit_num
+    )
 
-        if token.get("submit_id") != submit_id:
-            raise PermissionDenied()
-    else:
-        raise PermissionDenied()
-
-    submit = get_object_or_404(Submit, id=submit_id)
+    authenticate_submit_token_request(request, submit)
 
     summary_result: ReviewResult = from_json(ReviewResult, request.body)
     save_submit_review(submit, summary_result)
