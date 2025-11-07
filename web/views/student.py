@@ -857,7 +857,12 @@ def submit_comments(request, assignment_id, login, submit_num):
                         "can_edit": False,
                         "type": AI_REVIEW_COMMENT_TYPE,
                         "url": None,
-                        "meta": {"summary": {"id": summary.id, "state": summary.state.name}},
+                        "meta": {
+                            "summary": {
+                                "id": summary.id,
+                                "state": summary.state.name,  #
+                            }
+                        },
                     }
                 )
 
