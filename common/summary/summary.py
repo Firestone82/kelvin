@@ -98,7 +98,7 @@ def embed_source_files(source_files_path: str) -> List[EmbeddedFile]:
 
 
 @django_rq.job
-def summary_job(submit_url, token) -> None:
+def summary_job(submit_url, summary_url, token) -> None:
     logging.basicConfig(level=logging.DEBUG)
     logging.info(f"Summarizing {submit_url}")
 
@@ -114,11 +114,11 @@ def summary_job(submit_url, token) -> None:
     logging.info(f"Calling OpenAI model for review with total {len(embedded_files)} files...")
     review: ReviewResult = summary.summarize()
 
-    upload_result(f"{submit_url}llm/result?token={token}", review)
+    upload_result(f"{summary_url}?token={token}", review)
     logging.info(f"Completed summarization for {submit_url}")
 
 
-def summarize_submit(submit_config, submit_url: str, token: str) -> Optional[str]:
+def summarize_submit(submit_config, submit_url: str, summary_url: str, token: str) -> Optional[str]:
     llm_config: LlmConfig = LlmConfig.from_dict(submit_config)
 
     if not llm_config.enabled:
@@ -126,7 +126,7 @@ def summarize_submit(submit_config, submit_url: str, token: str) -> Optional[str
 
     summary_queue = django_rq.get_queue("summary")
     enqueued_job = summary_queue.enqueue(
-        summary_job, submit_url, token, job_timeout=180
+        summary_job, submit_url, summary_url, token, job_timeout=180
     )
     return enqueued_job.id
 
@@ -159,66 +159,6 @@ def save_submit_review(submit: Submit, review: ReviewResult) -> None:
         )
 
     # TODO: Currently if re-evaluating, old teacher accepted suggestions are kept.
-
-    SuggestedComment.objects.filter(submit=submit).delete()
-    SuggestedComment.objects.bulk_create(suggestions)
-
-
-def get_submit_review(submit: Submit) -> Optional[ReviewResult]:
-    comments = SuggestedComment.objects.filter(submit=submit)
-
-    if not comments.exists():
-        return None
-
-    summary = None
-    suggestions = []
-
-    for comment in comments:
-        if not comment.line:
-            summary = SuggestedSummaryDTO(
-                id=comment.id, text=comment.text, state=SuggestionState(comment.state)
-            )
-        else:
-            suggestions.append(
-                SuggestedCommentDTO(
-                    id=comment.id,
-                    source=comment.source,
-                    line=comment.line,
-                    severity=Severity(comment.severity),
-                    text=comment.text,
-                    state=SuggestionState(comment.state),
-                )
-            )
-
-    return ReviewResult(summary=summary, suggestions=suggestions)
-
-
-def save_submit_review(submit: Submit, review: ReviewResult) -> None:
-    suggestions = []
-
-    # Save summary comment
-    if review.summary:
-        suggestions.append(
-            SuggestedComment(
-                submit=submit,
-                source=None,
-                line=None,
-                text=review.summary.text,
-                severity=Severity.MEDIUM.value,
-            )
-        )
-
-    # Save suggestion comments
-    for suggestion in review.suggestions:
-        suggestions.append(
-            SuggestedComment(
-                submit=submit,
-                source=suggestion.source,
-                line=suggestion.line,
-                text=suggestion.text,
-                severity=suggestion.severity.value,
-            )
-        )
 
     SuggestedComment.objects.filter(submit=submit).delete()
     SuggestedComment.objects.bulk_create(suggestions)
