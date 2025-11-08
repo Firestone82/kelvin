@@ -98,7 +98,7 @@ def embed_source_files(source_files_path: str) -> List[EmbeddedFile]:
 
 
 @django_rq.job
-def summary_job(submit_url, summary_url, token) -> None:
+def summary_job(submit_url: str, summary_url: str, token: str, llm_config: LlmConfig) -> None:
     logging.basicConfig(level=logging.DEBUG)
     logging.info(f"Summarizing {submit_url}")
 
@@ -109,7 +109,7 @@ def summary_job(submit_url, summary_url, token) -> None:
     summary: Summarizer = Summarizer(
         model=settings.OPENAI_MODEL,
         files=embedded_files,
-        language="",
+        language=llm_config.language,
     )
 
     logging.info(f"Calling OpenAI model for review with total {len(embedded_files)} files...")
@@ -119,7 +119,9 @@ def summary_job(submit_url, summary_url, token) -> None:
     logging.info(f"Completed summarization for {submit_url}")
 
 
-def summarize_submit(submit_config, submit_url: str, summary_url: str, token: str) -> Optional[str]:
+def enqueue_summary_job(
+    submit_config, submit_url: str, summary_url: str, token: str
+) -> Optional[str]:
     llm_config: LlmConfig = LlmConfig.from_dict(submit_config)
 
     if not llm_config.enabled:
@@ -127,8 +129,9 @@ def summarize_submit(submit_config, submit_url: str, summary_url: str, token: st
 
     summary_queue = django_rq.get_queue("summary")
     enqueued_job = summary_queue.enqueue(
-        summary_job, submit_url, summary_url, token, job_timeout=180
+        summary_job, submit_url, summary_url, token, llm_config, job_timeout=180
     )
+
     return enqueued_job.id
 
 
@@ -159,8 +162,6 @@ def save_submit_review(submit: Submit, review: ReviewResult) -> None:
             )
         )
 
-    # TODO: Currently if re-evaluating, old teacher accepted suggestions are kept.
-
     SuggestedComment.objects.filter(submit=submit).delete()
     SuggestedComment.objects.bulk_create(suggestions)
 
@@ -177,7 +178,9 @@ def get_submit_review(submit: Submit) -> Optional[ReviewResult]:
     for comment in comments:
         if not comment.line:
             summary = SuggestedSummaryDTO(
-                id=comment.id, text=comment.text, state=SuggestionState(comment.state)
+                id=comment.id,
+                text=comment.text,
+                state=SuggestionState(comment.state),  #
             )
         else:
             suggestions.append(
