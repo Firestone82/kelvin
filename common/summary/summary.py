@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 import django_rq
 import requests
+from serde.json import to_json
 
 from common.models import Submit, SuggestedComment
 from common.summary.dto import (
@@ -16,8 +17,6 @@ from common.summary.dto import (
     Severity,
     SuggestionState,
 )
-from common.serialization import dataclass_to_dict
-from common.summary.dto import EmbeddedFile, ReviewResult, LlmConfig
 from common.summary.summarizer import Summarizer
 from common.utils import download_source_to_path
 from kelvin import settings
@@ -49,10 +48,13 @@ def upload_result(submit_url: str, result: ReviewResult) -> None:
 
     logging.info(f"Uploading result to {submit_url}...")
 
+    json_body = to_json(result, indent=2)
+    logging.debug("Result JSON body: \n%s", json_body)
+
     response = session.post(
         submit_url,
         headers={"Content-Type": "application/json"},
-        data=json.dumps(dataclass_to_dict(result), indent=2),
+        data=json_body,
         timeout=30,
     )
 

@@ -13,7 +13,7 @@ from evaluator.results import EvaluationResult
 class SubmitData:
     submit: Submit
     results: EvaluationResult
-    ai_review: AIReviewResult
+    ai_review: Optional[AIReviewResult]
 
 
 @dataclass

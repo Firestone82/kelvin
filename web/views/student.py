@@ -16,13 +16,11 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import django_rq
 import magic
 import rq
-from common.summary.models import ReviewResult
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.core import signing
-from django.core.exceptions import PermissionDenied
 from django.http import (
     FileResponse,
     HttpResponse,
@@ -37,9 +35,7 @@ from django.views.decorators.csrf import csrf_exempt
 from notifications.models import Notification
 from notifications.signals import notify
 
-from common.ai_summary.dto import AIReviewResult
 from common.ai_summary.summary import (
-    AI_REVIEW_RESULT_FILE_NAME,
     AI_REVIEW_COMMENT_TYPE,
     AI_REVIEW_COMMENT_AUTHOR,
 )
@@ -52,7 +48,6 @@ from common.exceptions.http_exceptions import (
     HttpException409,
     HttpException429,
 )
-from common.event_log import record_task_displayed
 from common.models import (
     AssignedTask,
     Class,
@@ -64,10 +59,8 @@ from common.models import (
 )
 from common.plagcheck.moss import PlagiarismMatch, moss_result
 from common.submit import SubmitRateLimited, store_submit, SubmitPastHardDeadline
-from common.summary.models import ReviewResult
-from common.summary.summary import SUMMARY_RESULT_FILE_NAME
-from common.summary.dto import SuggestedSummaryDTO, SuggestionState
-from common.summary.summary import get_submit_review, SUMMARY_AUTHOR
+from common.summary.dto import SuggestedSummaryDTO, SuggestionState, ReviewResult
+from common.summary.summary import get_submit_review
 from common.upload import MAX_UPLOAD_FILECOUNT, TooManyFilesError
 from common.utils import is_teacher
 from evaluator.results import EvaluationResult
@@ -216,9 +209,9 @@ def student_index(request):
     semesters = []
     for year, winter in (
         Class.objects.filter(students__pk=request.user.id)
-            .values_list("semester__year", "semester__winter")
-            .distinct()
-            .order_by("semester__begin", "semester__winter")
+        .values_list("semester__year", "semester__winter")
+        .distinct()
+        .order_by("semester__begin", "semester__winter")
     ):
         semesters.append(
             {
@@ -240,20 +233,9 @@ def student_index(request):
 
 def get_submit_data(submit: Submit) -> SubmitData:
     results = []
-    ai_review = AIReviewResult("", [])
 
     try:
         results = EvaluationResult(submit.pipeline_path())
-    except json.JSONDecodeError:
-        # TODO: show error
-        pass
-
-    try:
-        with open(os.path.join(submit.pipeline_path(), AI_REVIEW_RESULT_FILE_NAME)) as f:
-            ai_review = from_json(AIReviewResult, f.read())
-    except FileNotFoundError:
-        # File not found, no summary available, do nothing
-        pass
     except json.JSONDecodeError:
         # TODO: show error
         pass
@@ -383,7 +365,7 @@ def task_detail(request, assignment_id, submit_num=None, login=None):
         "max_inline_content_bytes": MAX_INLINE_CONTENT_BYTES,
         "has_pipeline": bool(testset.pipeline),
         "upload": (not user_is_teacher or request.user.username == login)
-                  and not (hard_deadline and assignment.is_past_deadline()),
+        and not (hard_deadline and assignment.is_past_deadline()),
     }
 
     # Provide a link to a student with the same assignment who doesn't yet have any assigned points
@@ -754,7 +736,7 @@ def submit_comments(request, assignment_id, login, submit_num):
                 "type": "img",
                 "path": source.virt,
                 "src": reverse("submit_source", args=[submit.id, source.virt])
-                       + ("?convert=1" if mime not in SUPPORTED_IMAGES else ""),
+                + ("?convert=1" if mime not in SUPPORTED_IMAGES else ""),
             }
         elif mime and mime.startswith("video/"):
             name = ".".join(source.virt.split(".")[:-1])

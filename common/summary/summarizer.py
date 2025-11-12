@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import List
 
@@ -155,5 +156,8 @@ class Summarizer:
                     for sug in suggestions
                 ],
             )
+        except ValueError as e:
+            logging.debug(f"Raw model output: {response.choices[0].message.content}")
+            raise ValueError(f"Invalid JSON in model response: {e}")
         except Exception as e:
             raise ValueError(f"Failed to parse model response: {e}")
