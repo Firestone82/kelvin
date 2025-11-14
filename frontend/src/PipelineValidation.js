@@ -1,4 +1,5 @@
 import yaml from 'js-yaml';
+import ISO6391 from 'iso-639-1';
 import CodeMirror from 'codemirror';
 
 CodeMirror.registerHelper('hint', 'yaml', function (cm) {
@@ -293,16 +294,68 @@ class UnionRule {
     }
 }
 
+// Character-class flags
+const ValueRuleFlags = {
+    NUMERIC: 1 << 0,
+    ALPHABET: 1 << 1,
+    SYMBOLS: 1 << 2
+};
+
 class ValueRule {
-    validate(prefix, data, sourceMap) {
-        if (data === null) {
-            return [err(sourceMap[mkey(prefix)].value, 'Should not be null.')];
-        }
-        if (data.constructor == Object) {
-            return [err(sourceMap[mkey(prefix)].value, 'Should not be dictionary.')];
+    constructor(flags = null) {
+        this.flags = flags;
+    }
+
+    hasFlag(flag) {
+        if (this.flags === null) {
+            return true; // Allow all classes by default
         }
 
-        return [];
+        return (this.flags & flag) === flag;
+    }
+
+    validate(prefix, data, sourceMap) {
+        const errorList = [];
+        const source = sourceMap[mkey(prefix)].value;
+
+        // Reject null
+        if (data === null) {
+            errorList.push(err(source, 'Should not be null.'));
+            return errorList;
+        }
+
+        // Reject plain objects/dictionaries
+        if (data.constructor === Object) {
+            errorList.push(err(source, 'Should not be dictionary.'));
+            return errorList;
+        }
+
+        const stringValue = String(data);
+
+        for (let position = 0; position < stringValue.length; position++) {
+            const character = stringValue[position];
+
+            const isDigit = character >= '0' && character <= '9';
+            const isLetter = /[a-zA-Z]/.test(character);
+            const isSymbol = !isDigit && !isLetter;
+
+            if (isDigit && !this.hasFlag(ValueRuleFlags.NUMERIC)) {
+                errorList.push(err(source, 'Contains numeric characters, which are not allowed.'));
+                break;
+            }
+            if (isLetter && !this.hasFlag(ValueRuleFlags.ALPHABET)) {
+                errorList.push(
+                    err(source, 'Contains alphabetic characters, which are not allowed.')
+                );
+                break;
+            }
+            if (isSymbol && !this.hasFlag(ValueRuleFlags.SYMBOLS)) {
+                errorList.push(err(source, 'Contains symbols, which are not allowed.'));
+                break;
+            }
+        }
+
+        return errorList;
     }
 
     hint() {
@@ -587,5 +640,19 @@ const rules = new DictRule({
             }),
             'Automatically assign or propose points based on executed tests.'
         ]
+    }),
+    async: new DictRule({
+        llm: new DictRule({
+            enabled: [
+                new EnumRule(['true', 'false']),
+                'Enable or disable LLM summary and suggestions generation.'
+            ],
+            language: [
+                new EnumRule(ISO6391.getAllCodes()),
+                'Language code for the generated summary and suggestions.'
+            ],
+            model: [new ValueRule(), 'OpenAI model used for summary and suggestions generation.'],
+            prompt_name: [new ValueRule(), 'ID of the custom prompt stored in the system.']
+        })
     })
 });
