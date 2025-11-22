@@ -60,6 +60,7 @@ from common.models import (
     current_semester,
 )
 from common.plagcheck.moss import PlagiarismMatch, moss_result
+from common.services.comments_service import fetch_comment_recipients
 from common.submit import SubmitRateLimited, store_submit, SubmitPastHardDeadline
 from common.upload import MAX_UPLOAD_FILECOUNT, TooManyFilesError
 from common.utils import is_teacher
@@ -504,18 +505,6 @@ def find_task_detail(request, task_id, login=None):
     return redirect(url)
 
 
-def comment_recipients(submit, current_author):
-    recipients = [submit.assignment.clazz.teacher, submit.student]
-
-    # add all participants
-    for comment in Comment.objects.filter(submit_id=submit.id):
-        if comment.author not in recipients:
-            recipients.append(comment.author)
-
-    recipients.remove(current_author)
-    return recipients
-
-
 @login_required
 def submit_source(request, submit_id, path):
     submit = get_object_or_404(Submit, id=submit_id)
@@ -679,7 +668,7 @@ def submit_comments(request, assignment_id, login, submit_num):
 
         notify.send(
             sender=request.user,
-            recipient=comment_recipients(submit, request.user),
+            recipient=fetch_comment_recipients(submit, request.user),
             verb="added new",
             action_object=comment,
             target=submit,
@@ -709,7 +698,7 @@ def submit_comments(request, assignment_id, login, submit_num):
 
                 notify.send(
                     sender=request.user,
-                    recipient=comment_recipients(submit, request.user),
+                    recipient=fetch_comment_recipients(submit, request.user),
                     verb="updated",
                     action_object=comment,
                     target=submit,

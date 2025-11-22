@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+import datetime
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
 
 from serde import serde
 
@@ -6,12 +8,63 @@ from serde import serde
 @serde
 @dataclass
 class CommentDTO:
-    id: int
     author: str
     author_id: int
     text: str
-    line: int
-    source: str
-    can_edit: bool
+    line: int | None
+    source: str | None
     type: str
     unread: bool
+    can_edit: bool
+    notification_id: int | None = None
+    meta: Dict[str, Any] = field(default_factory=dict)
+    id: int = -1
+
+
+@serde
+@dataclass
+class AssignedSubmit:
+    num: int
+    submitted: datetime.datetime
+    points: float | None
+    comments: int
+
+
+@serde
+@dataclass
+class ImageSource:
+    path: str
+    src: str
+    type: str = "image"
+
+
+@serde
+@dataclass
+class VideoSource:
+    path: str
+    sources: List[str] = field(default_factory=list)
+    type: str = "video"
+
+
+@serde
+@dataclass
+class TextSource:
+    path: str
+    content: str
+    content_url: str | None
+    error: str | None
+    comments: Dict[int, List[CommentDTO]] = field(default_factory=dict)
+    type: str = "text"
+
+
+type SubmitSources = Dict[str, ImageSource | VideoSource | TextSource]
+
+
+@serde
+@dataclass
+class TaskSubmitDetails:
+    sources: SubmitSources
+    summary_comments: List[CommentDTO]
+    submits: list[AssignedSubmit]
+    current_submit: int
+    deadline: datetime.datetime | None
