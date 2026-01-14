@@ -146,30 +146,33 @@ const fileTreeItems = computed(() => {
   }
 
   const tree = buildFileTree(files.value);
-  const items = flattenFileTree(tree);
+  return flattenFileTree(tree);
+});
 
-  if (viewMode.value !== 'tree' || !selectedFilePath.value) {
-    return items;
+const activeFile = computed(() => {
+  if (!files.value || files.value.length === 0) {
+    return null;
   }
 
-  const visiblePaths = new Set();
-  const parts = selectedFilePath.value.split('/').filter((part) => part !== '');
-  let currentPath = '';
+  if (!selectedFilePath.value) {
+    return files.value[0];
+  }
 
-  parts.forEach((part) => {
-    currentPath = currentPath ? `${currentPath}/${part}` : part;
-    visiblePaths.add(currentPath);
-  });
+  return (
+    files.value.find((file) => file.source.path === selectedFilePath.value) || files.value[0]
+  );
+});
 
-  visiblePaths.add(selectedFilePath.value);
+const visibleFiles = computed(() => {
+  if (!files.value) {
+    return [];
+  }
 
-  return items.filter((item) => {
-    if (item.type === 'file') {
-      return item.path === selectedFilePath.value;
-    }
+  if (viewMode.value === 'tree') {
+    return activeFile.value ? [activeFile.value] : [];
+  }
 
-    return visiblePaths.has(item.path);
-  });
+  return files.value;
 });
 
 const showViewToggle = computed(() => files.value && files.value.length > 1);
@@ -451,7 +454,17 @@ const goToSelectedLines = () => {
 };
 
 const toggleFileOpen = (file) => {
-  file.opened = !file.opened;
+  if (viewMode.value === 'tree') {
+    files.value = files.value.map((item) => {
+      return {
+        ...item,
+        opened: item.source.path === file.source.path
+      };
+    });
+  } else {
+    file.opened = !file.opened;
+  }
+
   selectedFilePath.value = file.source.path;
 };
 
@@ -473,7 +486,12 @@ const openFileFromTree = (path) => {
 
   const match = files.value.find((file) => file.source.path === path);
   if (match) {
-    match.opened = true;
+    files.value = files.value.map((item) => {
+      return {
+        ...item,
+        opened: item.source.path === match.source.path
+      };
+    });
   }
 
   const header = document.querySelector(`[data-file-path="${CSS.escape(path)}"]`);
@@ -498,6 +516,10 @@ const load = async () => {
     for (const file of files.value) {
       file.opened = false;
     }
+  }
+
+  if (files.value.length > 0 && !files.value.some((file) => file.opened)) {
+    files.value[0].opened = true;
   }
 
   const selectedFile = goToSelectedLines();
@@ -654,7 +676,7 @@ onUnmounted(() => {
         @resolve-suggestion="resolveSuggestion"
       />
 
-      <template v-for="file in files" :key="file.source.path">
+      <template v-for="file in visibleFiles" :key="file.source.path">
         <h2 class="file-header" :data-file-path="file.source.path">
           <span @click="toggleFileOpen(file)">
             <span title="Toggle file visibility">{{ file.source.path }}</span>
@@ -773,10 +795,13 @@ img {
   list-style: none;
   padding: 0;
   margin: 0;
+  position: relative;
+  border-left: 1px solid #e5e7eb;
 }
 
 .file-tree-item {
   margin-bottom: 0.35rem;
+  position: relative;
 }
 
 .file-tree-item-folder {
@@ -794,6 +819,15 @@ img {
   padding: 0.1rem 0;
   color: inherit;
   text-align: left;
+}
+
+.file-tree-item::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 12px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .file-tree-button:hover,
