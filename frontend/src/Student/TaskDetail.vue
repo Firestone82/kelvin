@@ -29,6 +29,8 @@ const current_submit = ref(null);
 const deadline = ref(null);
 const showDiff = ref(false);
 const selectedRows = ref(null);
+const selectedFilePath = ref(null);
+const viewMode = ref('list');
 
 const currentUser = useSvelteStore(user, null);
 const hideCommentsValue = useSvelteStore(hideComments, HideCommentsState.NONE);
@@ -63,6 +65,115 @@ class SourceFile {
     this.opened = true;
   }
 }
+
+const buildFileTree = (sources) => {
+  const root = {
+    name: '',
+    path: '',
+    type: 'folder',
+    children: []
+  };
+
+  const findOrCreateFolder = (node, name, path) => {
+    let folder = node.children.find((child) => child.type === 'folder' && child.name === name);
+    if (!folder) {
+      folder = {
+        name,
+        path,
+        type: 'folder',
+        children: []
+      };
+      node.children.push(folder);
+    }
+    return folder;
+  };
+
+  for (const file of sources) {
+    const parts = file.source.path.split('/').filter((part) => part !== '');
+    let current = root;
+    let currentPath = '';
+
+    parts.forEach((part, index) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isFile = index === parts.length - 1;
+
+      if (isFile) {
+        current.children.push({
+          name: part,
+          path: file.source.path,
+          type: 'file',
+          id: `file-${currentPath}`
+        });
+      } else {
+        current = findOrCreateFolder(current, part, currentPath);
+      }
+    });
+  }
+
+  const sortNodes = (nodes) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'folder' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const node of nodes) {
+      if (node.type === 'folder') {
+        sortNodes(node.children);
+      }
+    }
+  };
+
+  sortNodes(root.children);
+  return root.children;
+};
+
+const flattenFileTree = (nodes, depth = 0, items = []) => {
+  for (const node of nodes) {
+    items.push({ ...node, depth });
+    if (node.type === 'folder' && node.children.length > 0) {
+      flattenFileTree(node.children, depth + 1, items);
+    }
+  }
+
+  return items;
+};
+
+const fileTreeItems = computed(() => {
+  if (!files.value) {
+    return [];
+  }
+
+  const tree = buildFileTree(files.value);
+  const items = flattenFileTree(tree);
+
+  if (viewMode.value !== 'tree' || !selectedFilePath.value) {
+    return items;
+  }
+
+  const visiblePaths = new Set();
+  const parts = selectedFilePath.value.split('/').filter((part) => part !== '');
+  let currentPath = '';
+
+  parts.forEach((part) => {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    visiblePaths.add(currentPath);
+  });
+
+  visiblePaths.add(selectedFilePath.value);
+
+  return items.filter((item) => {
+    if (item.type === 'file') {
+      return item.path === selectedFilePath.value;
+    }
+
+    return visiblePaths.has(item.path);
+  });
+});
+
+const showViewToggle = computed(() => files.value && files.value.length > 1);
+const showTreePanel = computed(() => showViewToggle.value && viewMode.value === 'tree');
 
 const changeCommentState = () => {
   let nextState = HideCommentsState.NONE;
@@ -320,6 +431,7 @@ const goToSelectedLines = () => {
         from: parseInt(range[0]),
         to: parseInt(range[1] || range[0])
       };
+      selectedFilePath.value = parts[0];
 
       setTimeout(() => {
         const el = document.querySelector(
@@ -338,6 +450,38 @@ const goToSelectedLines = () => {
   return null;
 };
 
+const toggleFileOpen = (file) => {
+  file.opened = !file.opened;
+  selectedFilePath.value = file.source.path;
+};
+
+const setViewMode = (mode) => {
+  if (!showViewToggle.value) {
+    viewMode.value = 'list';
+    return;
+  }
+
+  if (mode === 'tree' && !selectedFilePath.value && files.value?.length) {
+    selectedFilePath.value = files.value[0].source.path;
+  }
+
+  viewMode.value = mode;
+};
+
+const openFileFromTree = (path) => {
+  selectedFilePath.value = path;
+
+  const match = files.value.find((file) => file.source.path === path);
+  if (match) {
+    match.opened = true;
+  }
+
+  const header = document.querySelector(`[data-file-path="${CSS.escape(path)}"]`);
+  if (header) {
+    header.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
 const load = async () => {
   const res = await fetch(props.url);
   const json = await res.json();
@@ -347,6 +491,8 @@ const load = async () => {
   submits.value = json.submits;
   files.value = json.sources.map((source) => new SourceFile(source));
   summaryComments.value = json.summary_comments;
+  viewMode.value = 'list';
+  selectedFilePath.value = files.value[0]?.source.path ?? null;
 
   if (files.value.length > 1) {
     for (const file of files.value) {
@@ -381,82 +527,155 @@ onUnmounted(() => {
     <SyncLoader />
   </div>
 
-  <div v-else>
-    <div class="float-end">
-      <button
-        v-if="files.length > 1"
-        class="btn btn-link p-0"
-        title="Expand or collapse all files"
-        @click="toggleOpen"
-      >
-        <span v-if="allOpen">
-          <span class="iconify" data-icon="ant-design:folder-open-filled"></span>
+  <div v-else :class="{ 'task-detail-layout': showTreePanel }">
+    <aside v-if="showTreePanel" class="file-tree-panel">
+      <div class="file-tree-header">
+        <span>Files</span>
+        <span v-if="showViewToggle" class="file-view-toggle">
+          <button
+            type="button"
+            class="btn btn-link p-0"
+            :class="{ 'text-primary': viewMode === 'list' }"
+            title="List view"
+            @click="setViewMode('list')"
+          >
+            <span class="iconify" data-icon="mdi:format-list-bulleted"></span>
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-link p-0 ms-2"
+            :class="{ 'text-primary': viewMode === 'tree' }"
+            title="Tree view"
+            @click="setViewMode('tree')"
+          >
+            <span class="iconify" data-icon="mdi:file-tree-outline"></span>
+          </button>
         </span>
+      </div>
+      <ul class="file-tree-list">
+        <li
+          v-for="node in fileTreeItems"
+          :key="node.id || node.path"
+          class="file-tree-item"
+          :class="`file-tree-item-${node.type}`"
+          :style="{ paddingLeft: `${node.depth * 16}px` }"
+        >
+          <button
+            v-if="node.type === 'file'"
+            type="button"
+            class="file-tree-button"
+            :class="{ active: node.path === selectedFilePath }"
+            @click="openFileFromTree(node.path)"
+          >
+            <span class="iconify" data-icon="mdi:file-outline"></span>
+            <span class="file-tree-label">{{ node.name }}</span>
+          </button>
+          <div v-else class="file-tree-folder">
+            <span class="iconify" data-icon="mdi:folder-outline"></span>
+            <span class="file-tree-label">{{ node.name }}</span>
+          </div>
+        </li>
+      </ul>
+    </aside>
 
-        <span v-else>
-          <span class="iconify" data-icon="ant-design:folder-filled"></span>
-        </span>
-      </button>
+    <div class="task-detail-main">
+      <div v-if="showViewToggle && !showTreePanel" class="file-view-toggle file-view-toggle-inline">
+        <button
+          type="button"
+          class="btn btn-link p-0"
+          :class="{ 'text-primary': viewMode === 'list' }"
+          title="List view"
+          @click="setViewMode('list')"
+        >
+          <span class="iconify" data-icon="mdi:format-list-bulleted"></span>
+        </button>
 
-      <button class="btn p-0 btn-link" :title="commentsUI.title" @click="changeCommentState">
-        <div :key="commentsUI.icon">
-          <span class="iconify" :data-icon="commentsUI.icon"></span>
-        </div>
-      </button>
+        <button
+          type="button"
+          class="btn btn-link p-0 ms-2"
+          :class="{ 'text-primary': viewMode === 'tree' }"
+          title="Tree view"
+          @click="setViewMode('tree')"
+        >
+          <span class="iconify" data-icon="mdi:file-tree-outline"></span>
+        </button>
+      </div>
+      <div class="float-end">
+        <button
+          v-if="files.length > 1"
+          class="btn btn-link p-0"
+          title="Expand or collapse all files"
+          @click="toggleOpen"
+        >
+          <span v-if="allOpen">
+            <span class="iconify" data-icon="ant-design:folder-open-filled"></span>
+          </span>
 
-      <button
-        class="btn p-0 btn-link"
-        title="Diff vs previous version(s)"
-        @click="showDiff = !showDiff"
-      >
-        <span class="iconify" data-icon="fa-solid:history"></span>
-      </button>
+          <span v-else>
+            <span class="iconify" data-icon="ant-design:folder-filled"></span>
+          </span>
+        </button>
 
-      <a :href="downloadHref" title="Open on your PC">
-        <span class="iconify" data-icon="fa-solid:external-link-alt"></span>
-      </a>
+        <button class="btn p-0 btn-link" :title="commentsUI.title" @click="changeCommentState">
+          <div :key="commentsUI.icon">
+            <span class="iconify" :data-icon="commentsUI.icon"></span>
+          </div>
+        </button>
 
-      <a href="download" download title="Download">
-        <span class="iconify" data-icon="fa-solid:download"></span>
-      </a>
-    </div>
+        <button
+          class="btn p-0 btn-link"
+          title="Diff vs previous version(s)"
+          @click="showDiff = !showDiff"
+        >
+          <span class="iconify" data-icon="fa-solid:history"></span>
+        </button>
 
-    <SubmitsDiff
-      v-if="showDiff"
-      :submits="submits"
-      :current_submit="current_submit"
-      :deadline="deadline"
-    />
+        <a :href="downloadHref" title="Open on your PC">
+          <span class="iconify" data-icon="fa-solid:external-link-alt"></span>
+        </a>
 
-    <SummaryComments
-      :summary-comments="summaryComments"
-      @save-comment="saveComment"
-      @set-notification="setNotification"
-      @resolve-suggestion="resolveSuggestion"
-    />
+        <a href="download" download title="Download">
+          <span class="iconify" data-icon="fa-solid:download"></span>
+        </a>
+      </div>
 
-    <template v-for="file in files" :key="file.source.path">
-      <h2 class="file-header">
-        <span @click="file.opened = !file.opened">
-          <span title="Toggle file visibility">{{ file.source.path }}</span>
+      <SubmitsDiff
+        v-if="showDiff"
+        :submits="submits"
+        :current_submit="current_submit"
+        :deadline="deadline"
+      />
 
-          <template v-if="file.source.comments && Object.keys(file.source.comments).length">
-            <template v-if="countComments(file.source.comments).user > 0">
-              <span
-                class="badge bg-secondary"
-                title="Student/teacher comments"
-                style="font-size: 60%"
-              >
-                {{ countComments(file.source.comments).user }}
-              </span>
+      <SummaryComments
+        :summary-comments="summaryComments"
+        @save-comment="saveComment"
+        @set-notification="setNotification"
+        @resolve-suggestion="resolveSuggestion"
+      />
+
+      <template v-for="file in files" :key="file.source.path">
+        <h2 class="file-header" :data-file-path="file.source.path">
+          <span @click="toggleFileOpen(file)">
+            <span title="Toggle file visibility">{{ file.source.path }}</span>
+
+            <template v-if="file.source.comments && Object.keys(file.source.comments).length">
+              <template v-if="countComments(file.source.comments).user > 0">
+                <span
+                  class="badge bg-secondary"
+                  title="Student/teacher comments"
+                  style="font-size: 60%"
+                >
+                  {{ countComments(file.source.comments).user }}
+                </span>
+              </template>
+
+              <template v-if="countComments(file.source.comments).automated > 0">
+                <span class="badge bg-primary" title="Automation comments" style="font-size: 60%">
+                  {{ countComments(file.source.comments).automated }}
+                </span>
+              </template>
             </template>
-
-            <template v-if="countComments(file.source.comments).automated > 0">
-              <span class="badge bg-primary" title="Automation comments" style="font-size: 60%">
-                {{ countComments(file.source.comments).automated }}
-              </span>
-            </template>
-          </template>
         </span>
 
         <CopyToClipboard
@@ -471,37 +690,38 @@ onUnmounted(() => {
         <a class="text-body" :href="file.source.content_url" download title="Download the file">
           <span class="iconify" data-icon="clarity:download-line" style="height: 20px" />
         </a>
-      </h2>
+        </h2>
 
-      <template v-if="file.opened">
-        <span v-if="file.source.error" class="text-muted">{{ file.source.error }}</span>
-        <template v-else-if="file.source.type === 'source'">
-          <template v-if="file.source.content === null">
-            Content too large, show <a :href="file.source.content_url">raw content</a>.
+        <template v-if="file.opened">
+          <span v-if="file.source.error" class="text-muted">{{ file.source.error }}</span>
+          <template v-else-if="file.source.type === 'source'">
+            <template v-if="file.source.content === null">
+              Content too large, show <a :href="file.source.content_url">raw content</a>.
+            </template>
+
+            <SubmitSource
+              v-else
+              :path="file.source.path"
+              :code="file.source.content"
+              :comments="file.source.comments"
+              :selected-rows="
+                selectedRows && selectedRows.path === file.source.path ? selectedRows : null
+              "
+              @set-notification="setNotification"
+              @save-comment="(payload) => saveComment({ ...payload, source: file.source.path })"
+              @resolve-suggestion="resolveSuggestion"
+            />
           </template>
 
-          <SubmitSource
-            v-else
-            :path="file.source.path"
-            :code="file.source.content"
-            :comments="file.source.comments"
-            :selected-rows="
-              selectedRows && selectedRows.path === file.source.path ? selectedRows : null
-            "
-            @set-notification="setNotification"
-            @save-comment="(payload) => saveComment({ ...payload, source: file.source.path })"
-            @resolve-suggestion="resolveSuggestion"
-          />
+          <img v-else-if="file.source.type === 'img'" :src="file.source.src" />
+          <video v-else-if="file.source.type === 'video'" controls>
+            <source v-for="src in file.source.sources" :key="src" :src="src" />
+          </video>
+
+          <template v-else>The preview cannot be shown.</template>
         </template>
-
-        <img v-else-if="file.source.type === 'img'" :src="file.source.src" />
-        <video v-else-if="file.source.type === 'video'" controls>
-          <source v-for="src in file.source.sources" :key="src" :src="src" />
-        </video>
-
-        <template v-else>The preview cannot be shown.</template>
       </template>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -519,7 +739,93 @@ img {
   text-decoration: underline;
 }
 
+.task-detail-layout {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.task-detail-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-tree-panel {
+  width: 260px;
+  flex: 0 0 260px;
+  border-right: 1px solid #e5e7eb;
+  padding-right: 1rem;
+  position: sticky;
+  top: 1rem;
+  align-self: flex-start;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.file-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.file-tree-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.file-tree-item {
+  margin-bottom: 0.35rem;
+}
+
+.file-tree-item-folder {
+  color: #4b5563;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.file-tree-button {
+  background: none;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0;
+  color: inherit;
+  text-align: left;
+}
+
+.file-tree-button:hover,
+.file-tree-button:focus {
+  text-decoration: underline;
+}
+
+.file-tree-button.active {
+  color: #0d6efd;
+  font-weight: 600;
+}
+
+.file-tree-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.file-tree-label {
+  word-break: break-word;
+}
+
 .file-header span .badge:hover {
   text-decoration: none;
+}
+
+.file-view-toggle {
+  display: inline-flex;
+  align-items: center;
+}
+
+.file-view-toggle-inline {
+  margin-bottom: 0.75rem;
 }
 </style>
