@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
-import type { ToastStatus, ToastOptions } from '../types/Toast';
+import { ref } from 'vue';
+import type { ToastApi, ToastStatus, ToastOptions } from '../types/Toast';
 
 type ToastItem = ToastOptions & { id: number };
 
@@ -29,61 +29,53 @@ const addToast = (toastOptions: ToastOptions) => {
   ];
 
   if (duration > 0) {
-    window.setTimeout(() => {
+    setTimeout(() => {
       toasts.value = toasts.value.filter((toastItem) => toastItem.id !== id);
     }, duration);
   }
 };
 
-const normalizeWindowToastOptions = (windowToastOptions: ToastOptions): ToastOptions => {
+const normalizeToastOptions = (toastOptions: ToastOptions): ToastOptions => {
   return {
-    title: windowToastOptions.title,
-    message: windowToastOptions.message,
-    type: windowToastOptions.type ?? 'success',
-    duration: windowToastOptions.duration
+    title: toastOptions.title,
+    message: toastOptions.message,
+    type: toastOptions.type ?? 'success',
+    duration: toastOptions.duration
   };
 };
 
-onMounted(() => {
-  window.showToast = (windowToastOptions: ToastOptions) => {
-    const toastOptions: ToastOptions = normalizeWindowToastOptions(windowToastOptions);
-    addToast(toastOptions);
-  };
+export const showToast = (toastOptions: ToastOptions) => {
+  addToast(normalizeToastOptions(toastOptions));
+};
 
-  window.toastApi = {
-    success: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
-      addToast({
-        message: message,
-        type: 'success',
-        title: options?.title,
-        duration: options?.duration
-      });
-    },
+export const toastApi: ToastApi = {
+  success: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
+    addToast({
+      message: message,
+      type: 'success',
+      title: options?.title,
+      duration: options?.duration
+    });
+  },
 
-    warning: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
-      addToast({
-        message: message,
-        type: 'warning',
-        title: options?.title,
-        duration: options?.duration
-      });
-    },
+  warning: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
+    addToast({
+      message: message,
+      type: 'warning',
+      title: options?.title,
+      duration: options?.duration
+    });
+  },
 
-    error: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
-      addToast({
-        message: message,
-        type: 'error',
-        title: options?.title,
-        duration: options?.duration
-      });
-    }
-  };
-});
-
-onBeforeUnmount(() => {
-  delete window.showToast;
-  delete window.toastApi;
-});
+  error: (message: string, options?: Omit<ToastOptions, 'message' | 'type'>) => {
+    addToast({
+      message: message,
+      type: 'error',
+      title: options?.title,
+      duration: options?.duration
+    });
+  }
+};
 </script>
 
 <template>
