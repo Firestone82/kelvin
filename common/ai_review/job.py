@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+from datetime import timedelta
 from typing import Dict, Optional, List
 
 import django_rq
@@ -22,7 +23,11 @@ from common.ai_review.dto import (
 )
 from common.ai_review.llm_reviewer import AISubmitReview
 from common.ai_review.openai_config import get_openai_server
+from common.ai_review.rate_limiter import ApiRateLimiter
 from common.utils import download_source_to_path
+
+AI_REVIEW_QUEUE = "default"
+API_RATE_LIMIT_SECONDS = 1.0
 
 # Available file extensions and their corresponding programming languages
 # If a file extension is not listed here, it will be skipped during embedding.
@@ -142,6 +147,18 @@ def embed_source_files(source_files_path: str) -> List[EmbeddedFile]:
 def review_job(
     submit_url: str, upload_url: str, prompt_url: str, token: str, llm_config: LlmConfig
 ) -> None:
+    rate_limiter = ApiRateLimiter(AI_REVIEW_QUEUE, API_RATE_LIMIT_SECONDS)
+    wait = rate_limiter.try_acquire()
+    if wait > 0:
+        logging.info("API rate limit active; requeueing review job in %.2fs", wait)
+        django_rq.get_queue(AI_REVIEW_QUEUE).enqueue_in(
+            timedelta(seconds=wait),
+            review_job,
+            submit_url, upload_url, prompt_url, token, llm_config,
+            job_timeout=180,
+        )
+        return
+
     logging.info(f"Summarizing {submit_url}")
 
     # Download files and embed them

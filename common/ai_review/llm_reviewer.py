@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from time import time, sleep
+from time import time, sleep as _sleep
 from typing import List, Tuple, TypeVar, Dict, Any, Optional
 
 from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
@@ -34,7 +34,6 @@ ResultType = TypeVar("ResultType")
 
 _DEFAULT_CONTEXT_TOKENS = 128_000
 _RESPONSE_TOKEN_RESERVE = 4_096
-_MIN_REQUEST_INTERVAL = 1.0  # seconds between consecutive API calls
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 2.0  # seconds; doubles on each retry
 
@@ -71,7 +70,6 @@ class AISubmitReview:
         self.server = server
         self.total_output_tokens = 0
         self.total_input_tokens = 0
-        self._last_call_time: float = 0.0
         self.client = OpenAI(
             api_key=server.api_key,
             base_url=server.base_url,
@@ -340,13 +338,6 @@ class AISubmitReview:
             "Step '%s': estimated input tokens %d / %d", step_name, estimated, available
         )
 
-    def _enforce_rate_limit(self) -> None:
-        elapsed = time() - self._last_call_time
-        if elapsed < _MIN_REQUEST_INTERVAL:
-            wait = _MIN_REQUEST_INTERVAL - elapsed
-            logging.debug("Rate limiting: waiting %.2fs before next API call", wait)
-            sleep(wait)
-
     def timed_chat_completion(
         self,
         step_name: str,
@@ -357,14 +348,12 @@ class AISubmitReview:
         extra_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Tuple[float, str]:
         self._check_context_size(step_name, messages)
-        self._enforce_rate_limit()
 
         step_start_time: float = time()
         attempt = 0
 
         while True:
             try:
-                self._last_call_time = time()
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -386,7 +375,7 @@ class AISubmitReview:
                     "Step '%s' attempt %d/%d failed (%s). Retrying in %.1fs...",
                     step_name, attempt, _MAX_RETRIES, type(exc).__name__, delay,
                 )
-                sleep(delay)
+                _sleep(delay)
 
         elapsed_seconds: float = time() - step_start_time
         message_content: str | None = response.choices[0].message.content
