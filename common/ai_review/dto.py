@@ -170,6 +170,7 @@ class OpenAIServerDTO:
     base_url: str
     api_key: str
     models: list[str]
+    max_context_tokens: int | None = field(default=None)
 
 
 @serde

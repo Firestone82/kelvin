@@ -1,10 +1,10 @@
 import json
 import logging
 import re
-from time import time
+from time import time, sleep
 from typing import List, Tuple, TypeVar, Dict, Any, Optional
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APITimeoutError, APIConnectionError, InternalServerError
 from openai.types.chat import (
     ChatCompletionUserMessageParam,
     ChatCompletionSystemMessageParam,
@@ -30,11 +30,17 @@ from common.ai_review.scheme import (
     CRITIQUE_RESULT_SCHEME,
 )
 
-# Generic return type for typed JSON parsing.
-# We use a TypeVar so `parse_json(..., target_type=ReviewResult)` is typed as
-# returning `ReviewResult` (and similarly for `DraftResult`) instead of `Any`.
-# This keeps call sites type-safe and avoids repetitive casts.
 ResultType = TypeVar("ResultType")
+
+_DEFAULT_CONTEXT_TOKENS = 128_000
+_RESPONSE_TOKEN_RESERVE = 4_096
+_MIN_REQUEST_INTERVAL = 1.0  # seconds between consecutive API calls
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 2.0  # seconds; doubles on each retry
+
+
+class ContextLimitExceededError(Exception):
+    pass
 
 
 def enumerate_file_lines(content: str) -> str:
@@ -65,6 +71,7 @@ class AISubmitReview:
         self.server = server
         self.total_output_tokens = 0
         self.total_input_tokens = 0
+        self._last_call_time: float = 0.0
         self.client = OpenAI(
             api_key=server.api_key,
             base_url=server.base_url,
@@ -304,6 +311,42 @@ class AISubmitReview:
 
         return prompt
 
+    def _estimate_message_tokens(self, messages: List[ChatCompletionMessageParam]) -> int:
+        total = 3  # reply priming overhead
+        for msg in messages:
+            content = msg.get("content") or ""
+            if isinstance(content, list):
+                content = " ".join(
+                    part.get("text", "") for part in content if isinstance(part, dict)
+                )
+            total += len(content) // 4 + 4  # ~4 chars/token + 4 tokens/message overhead
+        return total
+
+    def _check_context_size(
+        self, step_name: str, messages: List[ChatCompletionMessageParam]
+    ) -> None:
+        max_tokens = self.server.max_context_tokens or _DEFAULT_CONTEXT_TOKENS
+        available = max_tokens - _RESPONSE_TOKEN_RESERVE
+        estimated = self._estimate_message_tokens(messages)
+        if estimated > available:
+            raise ContextLimitExceededError(
+                f"Step '{step_name}': estimated {estimated:,} input tokens exceeds the "
+                f"available context of {available:,} tokens "
+                f"(model limit: {max_tokens:,}, reserved for response: {_RESPONSE_TOKEN_RESERVE:,}). "
+                f"Reduce the number or size of submitted files, or increase "
+                f"'max_context_tokens' in the server configuration."
+            )
+        logging.debug(
+            "Step '%s': estimated input tokens %d / %d", step_name, estimated, available
+        )
+
+    def _enforce_rate_limit(self) -> None:
+        elapsed = time() - self._last_call_time
+        if elapsed < _MIN_REQUEST_INTERVAL:
+            wait = _MIN_REQUEST_INTERVAL - elapsed
+            logging.debug("Rate limiting: waiting %.2fs before next API call", wait)
+            sleep(wait)
+
     def timed_chat_completion(
         self,
         step_name: str,
@@ -313,16 +356,37 @@ class AISubmitReview:
         timeout: int = 180,
         extra_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Tuple[float, str]:
-        step_start_time: float = time()
+        self._check_context_size(step_name, messages)
+        self._enforce_rate_limit()
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            response_format=response_format,
-            temperature=temperature,
-            timeout=180,
-            **(extra_kwargs or {}),
-        )
+        step_start_time: float = time()
+        attempt = 0
+
+        while True:
+            try:
+                self._last_call_time = time()
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    response_format=response_format,
+                    temperature=temperature,
+                    timeout=timeout,
+                    **(extra_kwargs or {}),
+                )
+                break
+            except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
+                attempt += 1
+                if attempt > _MAX_RETRIES:
+                    logging.error(
+                        "Step '%s' failed after %d retries: %s", step_name, _MAX_RETRIES, exc
+                    )
+                    raise
+                delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logging.warning(
+                    "Step '%s' attempt %d/%d failed (%s). Retrying in %.1fs...",
+                    step_name, attempt, _MAX_RETRIES, type(exc).__name__, delay,
+                )
+                sleep(delay)
 
         elapsed_seconds: float = time() - step_start_time
         message_content: str | None = response.choices[0].message.content
@@ -335,8 +399,8 @@ class AISubmitReview:
             input_tokens,
             output_tokens,
         )
-        self.total_input_tokens = self.total_output_tokens + input_tokens
-        self.total_output_tokens = self.total_output_tokens + output_tokens
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
 
         if message_content is None:
             raise ValueError(f"{step_name} returned empty message content.")
