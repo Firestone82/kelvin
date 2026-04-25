@@ -68,7 +68,9 @@ const addNewComment = (text: string) => {
     </td>
 
     <td>
-      <pre v-html="line"></pre>
+      <!-- eslint-disable vue/no-v-html -->
+      <pre v-html="line" />
+      <!-- eslint-enable -->
 
       <template v-for="comment in comments || []" :key="comment.id">
         <SuggestedComment
