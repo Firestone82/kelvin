@@ -156,7 +156,7 @@ const readAll = async () => {
                 >
                   {{ item.action_object }}
                 </a>
-                <template v-else>{item.action_object}</template>
+                <template v-else>{{ item.action_object }}</template>
 
                 <template v-if="item.target"> on {{ item.target }}</template>
               </template>
