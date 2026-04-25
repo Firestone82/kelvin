@@ -143,7 +143,9 @@ const readAll = async () => {
           >
             <div>
               <strong>{{ item.actor }}&nbsp;</strong>
+              <!-- eslint-disable vue/no-v-html -->
               <div v-if="item.custom_text" v-html="item.custom_text" />
+              <!-- eslint-enable -->
 
               <template v-else>
                 {{ item.verb }}

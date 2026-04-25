@@ -119,6 +119,7 @@ watch(selectedId, () => {
     </div>
 
     <ul v-if="filtered.length && focused">
+      <!-- eslint-disable vue/no-v-html -->
       <li
         v-for="(item, i) in filtered"
         :key="i"
@@ -132,7 +133,8 @@ watch(selectedId, () => {
         v-html="
           item.path.replace(new RegExp('(' + escapeRegExp(path) + ')', 'gi'), '<strong>$1</strong>')
         "
-      ></li>
+      />
+      <!-- eslint-enable -->
     </ul>
   </div>
 </template>
