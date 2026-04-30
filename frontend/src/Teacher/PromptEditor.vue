@@ -26,7 +26,7 @@ const props = defineProps<{
   username: string;
 }>();
 
-const API = '/api/v2/llm/prompt';
+const API = '/api/v2/llm/prompts';
 
 const prompts = ref<Prompt[]>([]);
 const selectedPrompt = ref<Prompt | null>(null);
