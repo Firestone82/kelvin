@@ -9,24 +9,24 @@ import { useSvelteStore } from '../../utilities/useSvelteStore';
 const props = withDefaults(
   defineProps<{
     author?: string;
-    author_id?: number | null;
+    authorId?: number | null;
     text?: string;
     type?: string;
     id?: number | null;
-    can_edit?: boolean;
+    canEdit?: boolean;
     unread?: boolean | null;
-    notification_id?: number | null;
+    notificationId?: number | null;
     meta?: { url?: string; review?: { id: number } } | null;
   }>(),
   {
     author: '',
-    author_id: null,
+    authorId: null,
     text: '',
     type: '',
     id: null,
-    can_edit: false,
+    canEdit: false,
     unread: null,
-    notification_id: null,
+    notificationId: null,
     meta: null
   }
 );
@@ -72,7 +72,7 @@ const handleNotification = () => {
     <div
       class="comment"
       :class="[`comment-${unread ? 'unread' : 'read'}`, type]"
-      @dblclick="editing = can_edit"
+      @dblclick="editing = canEdit"
     >
       <strong>{{ author }}: </strong>
 
@@ -86,7 +86,7 @@ const handleNotification = () => {
 
         <template v-else-if="currentUser">
           <button
-            v-if="unread && author_id !== currentUser.id"
+            v-if="unread && authorId !== currentUser.id"
             class="btn p-0 float-end"
             style="line-height: normal"
             @click.prevent="handleNotification"
@@ -94,7 +94,9 @@ const handleNotification = () => {
             <span class="iconify" data-icon="cil-check"></span>
           </button>
 
-          <span v-html="safeMarkdown(text)"></span>
+          <!-- eslint-disable vue/no-v-html -->
+          <span v-html="safeMarkdown(text)" />
+          <!-- eslint-enable -->
         </template>
       </template>
 

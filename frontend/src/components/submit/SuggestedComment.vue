@@ -264,7 +264,9 @@ const handleRating = async (rating: number) => {
         </div>
       </div>
 
-      <div v-if="!editing" class="comment-text" v-html="safeMarkdown(text)"></div>
+      <!-- eslint-disable vue/no-v-html -->
+      <div v-if="!editing" class="comment-text" v-html="safeMarkdown(text)" />
+      <!-- eslint-enable -->
       <CommentForm v-else :comment="text" :disabled="sending" @save="handleSave" />
     </div>
   </div>
