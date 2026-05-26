@@ -13,8 +13,6 @@ import { getExtension } from '../utilities/EditorUtils';
 import { lintPipeline } from '../PipelineValidation.js';
 
 import 'codemirror/lib/codemirror.css';
-import 'codemirror/theme/dracula.css';
-import 'codemirror/theme/eclipse.css';
 import 'codemirror/mode/clike/clike.js';
 import 'codemirror/mode/yaml/yaml.js';
 import 'codemirror/mode/python/python.js';
