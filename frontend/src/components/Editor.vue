@@ -81,7 +81,9 @@ let editorElement = ref();
 let editor: EditorFromTextArea;
 
 function getThemeName(value: ThemeValue) {
-  return value == 'dark' ? 'dracula' : 'eclipse';
+  const name = value == 'dark' ? 'dracula' : 'eclipse';
+  console.log('[Editor] getThemeName called with theme value:', value, '-> returning:', name);
+  return name;
 }
 
 function toMode(filename: string) {
@@ -177,6 +179,7 @@ function setUpOptions() {
 
 //initialize editor
 function initializeEditor() {
+  console.log('[Editor] initializeEditor - current theme.value:', theme.value);
   //https://stackoverflow.com/questions/67686617/codemirror-on-vue3-has-a-problem-when-setvalue-is-kicked
   editor = markRaw(
     CodeMirror.fromTextArea(editorElement.value, {
@@ -220,7 +223,9 @@ watch(editorContent, (value) => {
 watch(
   [theme, () => autofocus, () => disabled, () => extraKeys],
   ([theme, autofocus, disabled, extraKeys]) => {
+    console.log('[Editor] theme watcher fired - new theme:', theme, 'editor exists:', !!editor);
     editor.setOption('theme', getThemeName(theme));
+    console.log('[Editor] editor theme option is now:', editor.getOption('theme'), 'wrapper class:', editor.getWrapperElement().className);
     editor.setOption('autofocus', autofocus);
     editor.setOption('readOnly', disabled);
     editor.setOption('extraKeys', {
